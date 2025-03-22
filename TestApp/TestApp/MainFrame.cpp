@@ -1,8 +1,6 @@
 #include "MainFrame.h"
 #include <wx/wx.h>
 #include <wx/dcbuffer.h>
-#include <wx/stdpaths.h>
-#include <wx/filename.h>
 #include <wx/datetime.h>
 #include <wx/file.h>
 #include <wx/statbmp.h>
@@ -32,10 +30,10 @@ m_isCapturing(false), m_videoPanel(nullptr), m_timer(nullptr)
     m_snapshotButton->SetBackgroundColour(wxColour(100, 100, 200)); // Bleu
     m_snapshotButton->Bind(wxEVT_BUTTON, &MainFrame::OnSnapshotButton, this);
 
-    m_saveImagesButton = new wxButton(panel, wxID_ANY, "Sauvegarder Images");
-    m_saveImagesButton->SetBackgroundColour(wxColour(200, 200, 100)); // Jaune
-    m_saveImagesButton->Bind(wxEVT_BUTTON, &MainFrame::OnSaveImagesButton, this);
-    m_saveImagesButton->Enable(false); // Désactivé jusqu'à ce qu'un snapshot soit pris
+    m_saveZipButton = new wxButton(panel, wxID_ANY, "Sauvegarder ZIP");
+    m_saveZipButton->SetBackgroundColour(wxColour(200, 200, 100)); // Jaune
+    m_saveZipButton->Bind(wxEVT_BUTTON, &MainFrame::OnSaveZipButton, this);
+    m_saveZipButton->Enable(false); // Désactivé jusqu'à ce qu'un snapshot soit pris
 
     m_xProfileButton = new wxButton(panel, wxID_ANY, "Profil X");
     m_xProfileButton->SetBackgroundColour(wxColour(200, 100, 100)); // Rouge
@@ -44,13 +42,13 @@ m_isCapturing(false), m_videoPanel(nullptr), m_timer(nullptr)
     // Ajout des boutons au sizer horizontal avec des marges
     buttonSizer->Add(m_captureButton, 1, wxALL | wxEXPAND, 10);
     buttonSizer->Add(m_snapshotButton, 1, wxALL | wxEXPAND, 10);
-    buttonSizer->Add(m_saveImagesButton, 1, wxALL | wxEXPAND, 10);
+    buttonSizer->Add(m_saveZipButton, 1, wxALL | wxEXPAND, 10);
     buttonSizer->Add(m_xProfileButton, 1, wxALL | wxEXPAND, 10);
 
     // Création des textes explicatifs
     m_captureText = new wxStaticText(panel, wxID_ANY, "Capture le flux en temps réel de la caméra");
     m_snapshotText = new wxStaticText(panel, wxID_ANY, "Prend un snapshot du flux vidéo");
-    wxStaticText* saveImagesText = new wxStaticText(panel, wxID_ANY, "Sauvegarde tous les snapshots");
+    wxStaticText* saveZipText = new wxStaticText(panel, wxID_ANY, "Sauvegarde tous les snapshots dans un ZIP");
     m_xProfileText = new wxStaticText(panel, wxID_ANY, "Récupère les 10 derniers posts d'un profil X");
 
     // Création d'un sizer pour les textes
@@ -59,7 +57,7 @@ m_isCapturing(false), m_videoPanel(nullptr), m_timer(nullptr)
     // Ajout des textes au sizer
     textSizer->Add(m_captureText, 1, wxALL | wxALIGN_CENTER, 10);
     textSizer->Add(m_snapshotText, 1, wxALL | wxALIGN_CENTER, 10);
-    textSizer->Add(saveImagesText, 1, wxALL | wxALIGN_CENTER, 10);
+    textSizer->Add(saveZipText, 1, wxALL | wxALIGN_CENTER, 10);
     textSizer->Add(m_xProfileText, 1, wxALL | wxALIGN_CENTER, 10);
 
     // Création d'un sizer horizontal pour le panel vidéo et la liste des snapshots
@@ -327,14 +325,14 @@ void MainFrame::OnSnapshotButton(wxCommandEvent& event)
     long itemIndex = m_snapshotList->InsertItem(m_snapshotList->GetItemCount(), snapshotName);
     m_snapshotList->SetItemData(itemIndex, m_snapshots.size() - 1); // Stocker l'index du snapshot
 
-    // Activer le bouton de sauvegarde des images
-    m_saveImagesButton->Enable(true);
+    // Activer le bouton de sauvegarde ZIP
+    m_saveZipButton->Enable(true);
 
     // Informer l'utilisateur
     wxMessageBox("Snapshot capturé avec succès", "Information", wxICON_INFORMATION);
 }
 
-void MainFrame::OnSaveImagesButton(wxCommandEvent& event)
+void MainFrame::OnSaveZipButton(wxCommandEvent& event)
 {
     // Vérifier s'il y a des snapshots à sauvegarder
     if (m_snapshots.empty())
@@ -343,24 +341,24 @@ void MainFrame::OnSaveImagesButton(wxCommandEvent& event)
         return;
     }
 
-    // Afficher une boîte de dialogue pour choisir où sauvegarder les images
-    wxDirDialog dirDialog(this, "Choisir un dossier pour sauvegarder les snapshots", "",
-        wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST);
+    // Afficher une boîte de dialogue pour choisir où sauvegarder le fichier zip
+    wxFileDialog saveFileDialog(this, "Sauvegarder les snapshots dans un fichier zip", "", "snapshots.zip",
+        "Fichiers ZIP (*.zip)|*.zip", wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
 
-    if (dirDialog.ShowModal() == wxID_CANCEL)
+    if (saveFileDialog.ShowModal() == wxID_CANCEL)
         return;
 
-    // Sauvegarder les images dans le dossier
-    wxString folderPath = dirDialog.GetPath();
+    // Sauvegarder les images dans un fichier zip
+    wxString zipPath = saveFileDialog.GetPath();
 
-    if (SaveImagesToFolder(m_snapshots, folderPath))
+    if (SaveImagesToZip(m_snapshots, zipPath))
     {
-        wxMessageBox("Snapshots sauvegardés avec succès dans " + folderPath, "Succès", wxICON_INFORMATION);
+        wxMessageBox("Snapshots sauvegardés avec succès dans " + zipPath, "Succès", wxICON_INFORMATION);
 
         // Vider la liste des snapshots après sauvegarde
         m_snapshots.clear();
         m_snapshotList->DeleteAllItems();
-        m_saveImagesButton->Enable(false);
+        m_saveZipButton->Enable(false);
     }
     else
     {
@@ -446,39 +444,70 @@ wxImage MainFrame::ConvertOpenCVToWxImage(const cv::Mat& image)
     return wxImg;
 }
 
-bool MainFrame::SaveImagesToFolder(const std::vector<cv::Mat>& images, const wxString& folderPath)
+bool MainFrame::SaveImagesToZip(const std::vector<cv::Mat>& images, const wxString& zipPath)
 {
     try
     {
-        // Créer un sous-dossier avec la date et l'heure actuelles
-        wxString timestamp = wxDateTime::Now().Format("%Y%m%d_%H%M%S");
-        wxString snapshotFolderPath = folderPath + wxFileName::GetPathSeparator() + "snapshots_" + timestamp;
-
-        // Créer le dossier
-        if (!wxMkdir(snapshotFolderPath))
+        // Créer le fichier zip
+        wxFFileOutputStream fileOut(zipPath);
+        if (!fileOut.IsOk())
         {
-            wxLogError("Impossible de créer le dossier %s", snapshotFolderPath);
+            wxLogError("Impossible de créer le fichier ZIP %s", zipPath);
             return false;
         }
 
-        // Sauvegarder chaque image
+        wxZipOutputStream zipOut(fileOut);
+        if (!zipOut.IsOk())
+        {
+            wxLogError("Erreur lors de l'initialisation du flux ZIP");
+            return false;
+        }
+
+        // Ajouter chaque image au zip
         for (size_t i = 0; i < images.size(); ++i)
         {
-            // Générer un nom de fichier pour l'image
-            wxString imageFileName = wxString::Format("snapshot_%03zu.jpg", i + 1);
-            wxString fullPath = snapshotFolderPath + wxFileName::GetPathSeparator() + imageFileName;
+            // Générer un nom de fichier temporaire pour l'image
+            wxString tempDir = wxStandardPaths::Get().GetTempDir();
+            wxString tempFileName = wxFileName::CreateTempFileName(tempDir);
+
+            // Ajouter l'extension .jpg
+            wxString imageFileName = tempFileName + ".jpg";
 
             // Sauvegarder l'image en format JPEG
             std::vector<int> compression_params;
             compression_params.push_back(cv::IMWRITE_JPEG_QUALITY);
             compression_params.push_back(95); // Qualité de l'image (0-100)
 
-            if (!cv::imwrite(fullPath.ToStdString(), images[i], compression_params))
+            cv::imwrite(imageFileName.ToStdString(), images[i], compression_params);
+
+            // Ajouter l'image au zip
+            wxDateTime now = wxDateTime::Now();
+            wxString entryName = wxString::Format("snapshot_%03zu_%s.jpg", i + 1,
+                now.Format("%Y%m%d_%H%M%S"));
+
+            zipOut.PutNextEntry(entryName);
+
+            // Lire le fichier image et l'écrire dans le zip
+            wxFFileInputStream fileIn(imageFileName);
+            if (!fileIn.IsOk())
             {
-                wxLogError("Impossible de sauvegarder l'image %s", fullPath);
-                return false;
+                wxLogError("Impossible d'ouvrir le fichier temporaire %s", imageFileName);
+                wxRemoveFile(imageFileName);
+                continue;
             }
+
+            zipOut.Write(fileIn);
+
+            // Fermer l'entrée
+            zipOut.CloseEntry();
+
+            // Supprimer le fichier temporaire
+            wxRemoveFile(imageFileName);
         }
+
+        // Fermer le zip
+        zipOut.Close();
+        fileOut.Close();
 
         return true;
     }
